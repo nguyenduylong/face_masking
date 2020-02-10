@@ -8,7 +8,7 @@ from PyQt5.QtCore import pyqtSignal
 
 class PushBut(QtWidgets.QPushButton):
     def __init__(self, background_url, parent=None):
-        super(PushBut1, self).__init__(parent)
+        super(PushBut, self).__init__(parent)
         self.setMouseTracking(True)
         self.setStyleSheet("margin: 1px; padding: 1px; border-style: solid; border-radius: 3px; border-width: 0.5px; border-color: rgba(127,127,255,255);")
         self.background_url = background_url

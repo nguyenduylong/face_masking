@@ -8,24 +8,30 @@ from PyQt5.QtCore import pyqtSignal
 from show_video import ShowVideo
 from image_viewer import ImageViewer
 from push_button import PushBut
- 
+
 if __name__ == '__main__':
  
     app = QtWidgets.QApplication(sys.argv)
     thread = QtCore.QThread()
     thread.start()
-    vid = ShowVideo(sticker_path='./stickers/test2.png')
+    vid = ShowVideo()
     vid.moveToThread(thread)
     image_viewer = ImageViewer()
  
     vid.VideoSignal.connect(image_viewer.setImage)
     #Button to start the videocapture:
- 
+    
+    start_button = PushBut(background_url='./stickers/start_butt.png')
+    start_button.clicked.connect(vid.startVideo)
     push_button1 = PushBut(background_url = './stickers/mustache.png')
-    push_button1.clicked.connect(vid.startVideo)
+    push_button1.clicked.connect(lambda: vid.set_new_sticker(sticker_path='./stickers/mustache.png', sticker_type='mustache'))
+    push_button2 = PushBut(background_url='./stickers/goggle_2.png')
+    push_button2.clicked.connect(lambda: vid.set_new_sticker(sticker_path='./stickers/goggle_2.png', sticker_type='goggle'))
     vertical_layout = QtWidgets.QVBoxLayout()
     button_layout = QtWidgets.QHBoxLayout()
+    button_layout.addWidget(start_button)
     button_layout.addWidget(push_button1)
+    button_layout.addWidget(push_button2)
     button_widget = QtWidgets.QWidget()
     button_widget.setLayout(button_layout)
     vertical_layout.addWidget(image_viewer)
@@ -38,4 +44,5 @@ if __name__ == '__main__':
     main_window = QtWidgets.QMainWindow()
     main_window.setCentralWidget(layout_widget)
     main_window.show()
+    main_window.setFixedSize(layout_widget.sizeHint())
     sys.exit(app.exec_())

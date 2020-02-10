@@ -5,10 +5,32 @@ from PyQt5 import QtCore
 from PyQt5 import QtWidgets
 from PyQt5 import QtGui
 from PyQt5.QtCore import pyqtSignal
+import face_recognition
+import imutils
+from imutils import face_utils
+import dlib
+from collections import OrderedDict
 
 
-face_cascPath = 'haarcascade_frontalface_default.xml'
-nose_cascPath = 'haarcascade_mcs_nose.xml'
+cascade_path = './haarcascade/'
+dlib_path = './dlib/shape_predictor_68_face_landmarks.dat'
+
+mid_nose = 33
+mid_mouth = 51
+
+eye_right = 17
+eye_left = 27
+
+
+def shapetocord(dshape):
+    # initialize the list of (x, y)-coordinates
+    cords = np.zeros((68, 2),dtype='int')
+    # loop over the 68 facial landmarks and convert them to a 2-tuple of (x, y)-coordinates
+    for i in range(0, 68):
+        cords[i] = (dshape.part(i).x,dshape.part(i).y)  #E.g now dshape.part[5].x will give us the point on x axis for the 6th 
+        #landmark
+    # return the list of (x, y) tuple-coordinates
+    return cords
 
 class ShowVideo(QtCore.QObject):
      
@@ -17,27 +39,36 @@ class ShowVideo(QtCore.QObject):
     camera = cv2.VideoCapture(camera_port)
     VideoSignal = QtCore.pyqtSignal(QtGui.QImage)
     
- 
-    def __init__(self, parent = None, sticker_path = './stickers/test.jpeg'):
-        super(ShowVideo, self).__init__(parent)
-        self.face_detector = cv2.CascadeClassifier(face_cascPath)
-        self.noseCascade = cv2.CascadeClassifier(nose_cascPath)
-        self.sticker_path = sticker_path
-        print(self.sticker_path)
-        # Load our overlay image: mustache.png
-        self.imgMustache = cv2.imread(self.sticker_path, -1)
-        self.imgMustache = cv2.cvtColor(self.imgMustache, cv2.COLOR_BGR2BGRA)
-        print(self.imgMustache.shape)
-        # Create the mask for the mustache
-        self.orig_mask = self.imgMustache[:,:,3]
+    def reset_mask_of_sticker(self):
+        if self.sticker_type is '' :
+            return
+        self.imgSticker = cv2.imread(self.sticker_path, -1)
+        self.imgSticker = cv2.cvtColor(self.imgSticker, cv2.COLOR_BGR2BGRA)
+        # Create the mask for the sticker
+        self.origin_mask = self.imgSticker[:,:,3]
         
-        # Create the inverted mask for the mustache
-        self.orig_mask_inv = cv2.bitwise_not(self.orig_mask)
+        # Create the inverted mask for the sticker
+        self.orig_mask_inv = cv2.bitwise_not(self.origin_mask)
         
         # Convert mustache image to BGR
         # and save the original image size (used later when re-sizing the image)
-        self.imgMustache = self.imgMustache[:,:,0:3]
-        self.origMustacheHeight, self.origMustacheWidth = self.imgMustache.shape[:2]
+        self.imgSticker = self.imgSticker[:,:,0:3]
+        self.origStickerHeight, self.origStickerWidth = self.imgSticker.shape[:2]
+
+    def __init__(self, parent = None, sticker_path = ''):
+        super(ShowVideo, self).__init__(parent)
+        self.dlib_face_detector = dlib.get_frontal_face_detector()
+        self.predictor = dlib.shape_predictor(dlib_path)
+        self.sticker_path = sticker_path
+        self.sticker_type = ''
+        self.imgSticker = []
+        self.origin_mask = []
+        self.orig_mask_inv = []
+        self.origStickerHeight = 0
+        self.origStickerWidth = 0
+
+        self.reset_mask_of_sticker()
+
     @QtCore.pyqtSlot()
     def startVideo(self):
  
@@ -48,67 +79,38 @@ class ShowVideo(QtCore.QObject):
             color_swapped_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
             gray_swapped_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
-            # Detect faces
-            faces = self.face_detector.detectMultiScale(
-                gray_swapped_image,
-                scaleFactor=1.2,
-                minNeighbors=5,
-                minSize=(50, 50),
-                flags=cv2.CASCADE_SCALE_IMAGE
-            )   
+            if self.sticker_type is not '' :
+                dlib_faces = self.dlib_face_detector(gray_swapped_image)
+                # loop over the face detections
+                for (i, rect) in enumerate(dlib_faces):
+                    # convert the facial landmark (x, y)-coordinates to a NumPy
+                    # array
+                    shape = self.predictor(gray_swapped_image, rect)
+                    cordinates = shapetocord(shape)
+                    shape = face_utils.shape_to_np(shape)
+                    (x, y, w, h) = face_utils.rect_to_bb(rect)
+                    cv2.rectangle(color_swapped_image, (x, y), (x + w, y + h), (0, 255, 0), 2)
 
-            for (x,y,w,h) in faces:
-                roi_gray = gray_swapped_image[y:y+h, x:x+w]
-                roi_color = color_swapped_image[y:y+h, x:x+w]
-                # Detect a nose within the region bounded by each face (the ROI)
-                nose = self.noseCascade.detectMultiScale(roi_gray)
+                    x1, x2, y1, y2, stickerHeight, stickerWidth = self.calculate_position_sticker_size(cordinates)
 
-                for (nx,ny,nw,nh) in nose:
-                    mustacheWidth =  3 * nw
-                    mustacheHeight = mustacheWidth * self.origMustacheHeight / self.origMustacheWidth
-                    x1 = nx - (mustacheWidth/4)
-                    x2 = nx + nw + (mustacheWidth/4)
-                    y1 = ny + nh - (mustacheHeight/2)
-                    y2 = ny + nh + (mustacheHeight/2)
-                                # Check for clipping
-                    if x1 < 0:
-                        x1 = 0
-                    if y1 < 0:
-                        y1 = 0
-                    if x2 > w:
-                        x2 = w
-                    if y2 > h:
-                        y2 = h
- 
-                    # Re-calculate the width and height of the mustache image
-                    x1, x2, y1, y2 = int(x1), int(x2), int(y1), int(y2)
-                    mustacheWidth = int(x2 - x1)
-                    mustacheHeight = int(y2 - y1)
-                    mustache = cv2.resize(self.imgMustache, (mustacheWidth,mustacheHeight), interpolation = cv2.INTER_AREA)
-                    mask = cv2.resize(self.orig_mask, (mustacheWidth,mustacheHeight), interpolation = cv2.INTER_AREA)
-                    mask_inv = cv2.resize(self.orig_mask_inv, (mustacheWidth,mustacheHeight), interpolation = cv2.INTER_AREA)
-        
+                    sticker = cv2.resize(self.imgSticker, (stickerWidth,stickerHeight), interpolation = cv2.INTER_AREA)
+                    mask = cv2.resize(self.origin_mask, (stickerWidth,stickerHeight), interpolation = cv2.INTER_AREA)
+                    mask_inv = cv2.resize(self.orig_mask_inv, (stickerWidth,stickerHeight), interpolation = cv2.INTER_AREA)
                     # take ROI for mustache from background equal to size of mustache image
-                    roi = roi_color[y1:y2, x1:x2]
-        
+                    roi = color_swapped_image[y1:y2, x1:x2]
                     # roi_bg contains the original image only where the mustache is not
                     # in the region that is the size of the mustache.
                     roi_bg = cv2.bitwise_and(roi,roi,mask = mask_inv)
-        
+            
                     # roi_fg contains the image of the mustache only where the mustache is
-                    roi_fg = cv2.bitwise_and(mustache,mustache,mask = mask)
-        
+                    roi_fg = cv2.bitwise_and(stickerHeight,sticker,mask = mask)
+            
                     # join the roi_bg and roi_fg
                     dst = cv2.add(roi_bg,roi_fg)
-        
-                    # place the joined image, saved to dst back over the original image
-                    roi_color[y1:y2, x1:x2] = dst
-                cv2.rectangle(color_swapped_image, (x, y), (x+w, y+h), (0, 255, 0), 2)
-            height, width, _ = color_swapped_image.shape
             
-            #width = camera.set(CAP_PROP_FRAME_WIDTH, 1600)
-			#height = camera.set(CAP_PROP_FRAME_HEIGHT, 1080)
-			#camera.set(CAP_PROP_FPS, 15)
+                    # place the joined image, saved to dst back over the original image
+                    color_swapped_image[y1:y2, x1:x2] = dst
+            height, width, _ = color_swapped_image.shape
             
             qt_image = QtGui.QImage(color_swapped_image.data,
                                     width,
@@ -118,5 +120,36 @@ class ShowVideo(QtCore.QObject):
  
             self.VideoSignal.emit(qt_image)
 
-    def set_icon(self, sticker_path = '.stickers/mustache.png'):
-        self.sticker_path = sticker_path;
+    def set_new_sticker(self, sticker_path='./stickers/mustache.png',sticker_type='mustache'):
+        self.sticker_path = sticker_path
+        self.sticker_type = sticker_type
+        self.reset_mask_of_sticker()
+    
+    def calculate_position_sticker_size(self, coordinates):
+        stickerHeight, stickerWidth = 0, 0
+        if self.sticker_type is 'mustache':
+            [midNoseX, midNoseY] = coordinates[mid_nose]
+            [midMouthX, midMouthY] = coordinates[mid_mouth]  
+            stickerHeight = abs(midMouthY - midNoseY) + 16
+            stickerWidth = stickerHeight * self.origStickerWidth / self.origStickerHeight
+            x1 = midNoseX - stickerWidth/2 
+            x2 = midNoseX + stickerWidth/2
+            y2 = midMouthY + 8
+            y1 = midNoseY - 8
+            x1, x2, y1, y2 = int(x1), int(x2), int(y1), int(y2)
+            stickerHeight = int(y2 - y1)
+            stickerWidth = int(x2 - x1)
+        else:
+            pts = coordinates[eye_right:eye_left]
+            xeye,yeye,weye,heye = cv2.boundingRect(pts)
+            yeye = int(yeye + heye/2)
+            stickerWidth =  weye + 10
+            stickerHeight = int(stickerWidth * self.origStickerHeight/ self.origStickerWidth)
+            x1 = int(xeye) - 5
+            x2 = x1 + stickerWidth
+            y2 = yeye + stickerHeight
+            y1 = yeye
+            x1, x2, y1, y2 = int(x1), int(x2), int(y1), int(y2)
+            stickerHeight = int(y2 - y1)
+            stickerWidth = int(x2 - x1)
+        return x1, x2, y1, y2, stickerHeight, stickerWidth
