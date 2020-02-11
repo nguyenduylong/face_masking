@@ -21,6 +21,12 @@ mid_mouth = 51
 eye_right = 17
 eye_left = 27
 
+lip_right = 48
+lip_left = 55
+
+nose_1 = 29
+nose_2 = 36
+
 
 def shapetocord(dshape):
     # initialize the list of (x, y)-coordinates
@@ -86,30 +92,29 @@ class ShowVideo(QtCore.QObject):
                     # convert the facial landmark (x, y)-coordinates to a NumPy
                     # array
                     shape = self.predictor(gray_swapped_image, rect)
-                    cordinates = shapetocord(shape)
+                    coordinates = shapetocord(shape)
                     shape = face_utils.shape_to_np(shape)
                     (x, y, w, h) = face_utils.rect_to_bb(rect)
                     cv2.rectangle(color_swapped_image, (x, y), (x + w, y + h), (0, 255, 0), 2)
-
-                    x1, x2, y1, y2, stickerHeight, stickerWidth = self.calculate_position_sticker_size(cordinates)
-
-                    sticker = cv2.resize(self.imgSticker, (stickerWidth,stickerHeight), interpolation = cv2.INTER_AREA)
-                    mask = cv2.resize(self.origin_mask, (stickerWidth,stickerHeight), interpolation = cv2.INTER_AREA)
-                    mask_inv = cv2.resize(self.orig_mask_inv, (stickerWidth,stickerHeight), interpolation = cv2.INTER_AREA)
-                    # take ROI for mustache from background equal to size of mustache image
-                    roi = color_swapped_image[y1:y2, x1:x2]
-                    # roi_bg contains the original image only where the mustache is not
-                    # in the region that is the size of the mustache.
-                    roi_bg = cv2.bitwise_and(roi,roi,mask = mask_inv)
-            
-                    # roi_fg contains the image of the mustache only where the mustache is
-                    roi_fg = cv2.bitwise_and(stickerHeight,sticker,mask = mask)
-            
-                    # join the roi_bg and roi_fg
-                    dst = cv2.add(roi_bg,roi_fg)
-            
-                    # place the joined image, saved to dst back over the original image
-                    color_swapped_image[y1:y2, x1:x2] = dst
+                    x1, x2, y1, y2, stickerHeight, stickerWidth = self.calculate_position_sticker_size(coordinates)
+                    if stickerWidth != 0 and stickerHeight != 0:
+                        sticker = cv2.resize(self.imgSticker, (stickerWidth,stickerHeight), interpolation = cv2.INTER_AREA)
+                        mask = cv2.resize(self.origin_mask, (stickerWidth,stickerHeight), interpolation = cv2.INTER_AREA)
+                        mask_inv = cv2.resize(self.orig_mask_inv, (stickerWidth,stickerHeight), interpolation = cv2.INTER_AREA)
+                        # take ROI for mustache from background equal to size of mustache image
+                        roi = color_swapped_image[y1:y2, x1:x2]
+                        # roi_bg contains the original image only where the mustache is not
+                        # in the region that is the size of the mustache.
+                        roi_bg = cv2.bitwise_and(roi,roi,mask = mask_inv)
+                
+                        # roi_fg contains the image of the mustache only where the mustache is
+                        roi_fg = cv2.bitwise_and(sticker,sticker,mask = mask)
+                
+                        # join the roi_bg and roi_fg
+                        dst = cv2.add(roi_bg,roi_fg)
+                
+                        # place the joined image, saved to dst back over the original image
+                        color_swapped_image[y1:y2, x1:x2] = dst
             height, width, _ = color_swapped_image.shape
             
             qt_image = QtGui.QImage(color_swapped_image.data,
@@ -127,6 +132,7 @@ class ShowVideo(QtCore.QObject):
     
     def calculate_position_sticker_size(self, coordinates):
         stickerHeight, stickerWidth = 0, 0
+        x1, x2, y1, y2 = 0, 0, 0, 0
         if self.sticker_type is 'mustache':
             [midNoseX, midNoseY] = coordinates[mid_nose]
             [midMouthX, midMouthY] = coordinates[mid_mouth]  
@@ -139,16 +145,40 @@ class ShowVideo(QtCore.QObject):
             x1, x2, y1, y2 = int(x1), int(x2), int(y1), int(y2)
             stickerHeight = int(y2 - y1)
             stickerWidth = int(x2 - x1)
-        else:
+        elif self.sticker_type is 'goggle':
             pts = coordinates[eye_right:eye_left]
             xeye,yeye,weye,heye = cv2.boundingRect(pts)
             yeye = int(yeye + heye/2)
-            stickerWidth =  weye + 10
+            stickerWidth =  int(weye * 1.4)
             stickerHeight = int(stickerWidth * self.origStickerHeight/ self.origStickerWidth)
-            x1 = int(xeye) - 5
+            x1 = int(xeye) - int((stickerWidth - weye)/2)
             x2 = x1 + stickerWidth
             y2 = yeye + stickerHeight
             y1 = yeye
+            x1, x2, y1, y2 = int(x1), int(x2), int(y1), int(y2)
+            stickerHeight = int(y2 - y1)
+            stickerWidth = int(x2 - x1)
+        elif self.sticker_type is 'lip':
+            pts = coordinates[lip_right:lip_left]
+            xlip,ylip,wlip,hlip = cv2.boundingRect(pts)
+            stickerWidth =  wlip + 30
+            stickerHeight = int(stickerWidth * self.origStickerHeight/ self.origStickerWidth)
+            x1 = int(xlip) - 15
+            x2 = x1 + stickerWidth
+            y2 = ylip - 10 + stickerHeight
+            y1 = ylip - 10
+            x1, x2, y1, y2 = int(x1), int(x2), int(y1), int(y2)
+            stickerHeight = int(y2 - y1)
+            stickerWidth = int(x2 - x1)
+        elif self.sticker_type is 'nose':
+            pts = coordinates[nose_1:nose_2]
+            xnose,ynose,wnose,hnose = cv2.boundingRect(pts)
+            stickerWidth =  wnose + 30
+            stickerHeight = int(stickerWidth * self.origStickerHeight/ self.origStickerWidth)
+            x1 = int(xnose) - 15
+            x2 = x1 + stickerWidth
+            y2 = ynose + stickerHeight
+            y1 = ynose
             x1, x2, y1, y2 = int(x1), int(x2), int(y1), int(y2)
             stickerHeight = int(y2 - y1)
             stickerWidth = int(x2 - x1)

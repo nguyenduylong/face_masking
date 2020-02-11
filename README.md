@@ -1,2 +1,2 @@
-# face_rec
-An eye-blink detection-based face liveness detection algorithm to thwart photo attacks.
+face masking project using python
+working group of my company
