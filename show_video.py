@@ -1,4 +1,6 @@
+import os
 import cv2
+from datetime import date
 import numpy as np
 import sys
 from PyQt5 import QtCore
@@ -59,6 +61,7 @@ class ShowVideo(QtCore.QObject):
         # Convert mustache image to BGR
         # and save the original image size (used later when re-sizing the image)
         self.imgSticker = self.imgSticker[:,:,0:3]
+        self.imgSticker = cv2.cvtColor(self.imgSticker, cv2.COLOR_BGR2RGB)
         self.origStickerHeight, self.origStickerWidth = self.imgSticker.shape[:2]
 
     def __init__(self, parent = None, sticker_path = ''):
@@ -95,7 +98,6 @@ class ShowVideo(QtCore.QObject):
                     coordinates = shapetocord(shape)
                     shape = face_utils.shape_to_np(shape)
                     (x, y, w, h) = face_utils.rect_to_bb(rect)
-                    cv2.rectangle(color_swapped_image, (x, y), (x + w, y + h), (0, 255, 0), 2)
                     x1, x2, y1, y2, stickerHeight, stickerWidth = self.calculate_position_sticker_size(coordinates)
                     if stickerWidth != 0 and stickerHeight != 0:
                         sticker = cv2.resize(self.imgSticker, (stickerWidth,stickerHeight), interpolation = cv2.INTER_AREA)
@@ -109,12 +111,11 @@ class ShowVideo(QtCore.QObject):
                 
                         # roi_fg contains the image of the mustache only where the mustache is
                         roi_fg = cv2.bitwise_and(sticker,sticker,mask = mask)
-                
-                        # join the roi_bg and roi_fg
-                        dst = cv2.add(roi_bg,roi_fg)
-                
-                        # place the joined image, saved to dst back over the original image
-                        color_swapped_image[y1:y2, x1:x2] = dst
+                        if roi_bg.shape == roi_fg.shape:
+                            # join the roi_bg and roi_fg
+                            dst = cv2.add(roi_bg,roi_fg)
+                            # place the joined image, saved to dst back over the original image
+                            color_swapped_image[y1:y2, x1:x2] = dst
             height, width, _ = color_swapped_image.shape
             
             qt_image = QtGui.QImage(color_swapped_image.data,
@@ -129,57 +130,81 @@ class ShowVideo(QtCore.QObject):
         self.sticker_path = sticker_path
         self.sticker_type = sticker_type
         self.reset_mask_of_sticker()
+
+    def calculate_position_mustache(self, coordinates):
+        [midNoseX, midNoseY] = coordinates[mid_nose]
+        [midMouthX, midMouthY] = coordinates[mid_mouth]  
+        [midMouthX, midMouthY] = coordinates[mid_mouth]  
+        [midMouthX, midMouthY] = coordinates[mid_mouth]  
+        stickerHeight = abs(midMouthY - midNoseY) + 16
+        stickerWidth = stickerHeight * self.origStickerWidth / self.origStickerHeight
+        x1 = midNoseX - stickerWidth/2 
+        x1 = midNoseX - stickerWidth/2 
+        x1 = midNoseX - stickerWidth/2 
+        x2 = midNoseX + stickerWidth/2
+        y2 = midMouthY + 8
+        y1 = midNoseY - 8
+        x1, x2, y1, y2 = int(x1), int(x2), int(y1), int(y2)
+        stickerHeight = int(y2 - y1)
+        stickerWidth = int(x2 - x1)
+
+        return x1, x2, y1, y2, stickerHeight, stickerWidth
+
+    def calculate_position_goggle(self, coordinates):
+        pts = coordinates[eye_right:eye_left]
+        xeye,yeye,weye,heye = cv2.boundingRect(pts)
+        yeye = int(yeye + heye/3)
+        stickerWidth =  int(weye * 1.4)
+        stickerHeight = int(stickerWidth * self.origStickerHeight/ self.origStickerWidth)
+        x1 = int(xeye) - int((stickerWidth - weye)/2)
+        x2 = x1 + stickerWidth
+        y2 = yeye + stickerHeight
+        y1 = yeye
+        x1, x2, y1, y2 = int(x1), int(x2), int(y1), int(y2)
+        stickerHeight = int(y2 - y1)
+        stickerWidth = int(x2 - x1)
+
+        return x1, x2, y1, y2, stickerHeight, stickerWidth
+
+    def calculate_position_lip(self, coordinates):
+        pts = coordinates[lip_right:lip_left]
+        xlip,ylip,wlip,hlip = cv2.boundingRect(pts)
+        stickerWidth =  wlip + 50
+        stickerHeight = int(stickerWidth * self.origStickerHeight/ self.origStickerWidth)
+        x1 = int(xlip) - 25
+        x2 = x1 + stickerWidth
+        y2 = ylip - 10 + stickerHeight
+        y1 = ylip - 10
+        x1, x2, y1, y2 = int(x1), int(x2), int(y1), int(y2)
+        stickerHeight = int(y2 - y1)
+        stickerWidth = int(x2 - x1)
+
+        return x1, x2, y1, y2, stickerHeight, stickerWidth
+    
+    def calculate_position_nose(self, coordinates):
+        pts = coordinates[nose_1:nose_2]
+        xnose,ynose,wnose,hnose = cv2.boundingRect(pts)
+        stickerWidth =  wnose + 30
+        stickerHeight = int(stickerWidth * self.origStickerHeight/ self.origStickerWidth)
+        x1 = int(xnose) - 15
+        x2 = x1 + stickerWidth
+        y2 = ynose + stickerHeight
+        y1 = ynose
+        x1, x2, y1, y2 = int(x1), int(x2), int(y1), int(y2)
+        stickerHeight = int(y2 - y1)
+        stickerWidth = int(x2 - x1)
+        return x1, x2, y1, y2, stickerHeight, stickerWidth
     
     def calculate_position_sticker_size(self, coordinates):
         stickerHeight, stickerWidth = 0, 0
         x1, x2, y1, y2 = 0, 0, 0, 0
-        if self.sticker_type is 'mustache':
-            [midNoseX, midNoseY] = coordinates[mid_nose]
-            [midMouthX, midMouthY] = coordinates[mid_mouth]  
-            stickerHeight = abs(midMouthY - midNoseY) + 16
-            stickerWidth = stickerHeight * self.origStickerWidth / self.origStickerHeight
-            x1 = midNoseX - stickerWidth/2 
-            x2 = midNoseX + stickerWidth/2
-            y2 = midMouthY + 8
-            y1 = midNoseY - 8
-            x1, x2, y1, y2 = int(x1), int(x2), int(y1), int(y2)
-            stickerHeight = int(y2 - y1)
-            stickerWidth = int(x2 - x1)
-        elif self.sticker_type is 'goggle':
-            pts = coordinates[eye_right:eye_left]
-            xeye,yeye,weye,heye = cv2.boundingRect(pts)
-            yeye = int(yeye + heye/2)
-            stickerWidth =  int(weye * 1.4)
-            stickerHeight = int(stickerWidth * self.origStickerHeight/ self.origStickerWidth)
-            x1 = int(xeye) - int((stickerWidth - weye)/2)
-            x2 = x1 + stickerWidth
-            y2 = yeye + stickerHeight
-            y1 = yeye
-            x1, x2, y1, y2 = int(x1), int(x2), int(y1), int(y2)
-            stickerHeight = int(y2 - y1)
-            stickerWidth = int(x2 - x1)
-        elif self.sticker_type is 'lip':
-            pts = coordinates[lip_right:lip_left]
-            xlip,ylip,wlip,hlip = cv2.boundingRect(pts)
-            stickerWidth =  wlip + 30
-            stickerHeight = int(stickerWidth * self.origStickerHeight/ self.origStickerWidth)
-            x1 = int(xlip) - 15
-            x2 = x1 + stickerWidth
-            y2 = ylip - 10 + stickerHeight
-            y1 = ylip - 10
-            x1, x2, y1, y2 = int(x1), int(x2), int(y1), int(y2)
-            stickerHeight = int(y2 - y1)
-            stickerWidth = int(x2 - x1)
-        elif self.sticker_type is 'nose':
-            pts = coordinates[nose_1:nose_2]
-            xnose,ynose,wnose,hnose = cv2.boundingRect(pts)
-            stickerWidth =  wnose + 30
-            stickerHeight = int(stickerWidth * self.origStickerHeight/ self.origStickerWidth)
-            x1 = int(xnose) - 15
-            x2 = x1 + stickerWidth
-            y2 = ynose + stickerHeight
-            y1 = ynose
-            x1, x2, y1, y2 = int(x1), int(x2), int(y1), int(y2)
-            stickerHeight = int(y2 - y1)
-            stickerWidth = int(x2 - x1)
+        switcher = {
+            'mustache': self.calculate_position_mustache,
+            'goggle': self.calculate_position_goggle,
+            'lip': self.calculate_position_lip,
+            'nose': self.calculate_position_nose,
+        }
+        if(self.origStickerWidth != 0 and self.origStickerHeight != 0):
+            func = switcher.get(self.sticker_type, lambda: "Invalid month")
+            x1, x2, y1, y2, stickerHeight, stickerWidth = func(coordinates)
         return x1, x2, y1, y2, stickerHeight, stickerWidth
